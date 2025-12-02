@@ -1,86 +1,185 @@
-# Spotify Listening Analytics – Big Data Pipeline
+🎧 Spotify Big Data Analysis Project
 
-This project analyzes Spotify listening history using a reproducible Big Data pipeline built with Python, Hadoop HDFS, and Hive. The goal is to demonstrate an end-to-end ETL (Extract, Transform, Load) workflow and apply SQL analytics to discover listening habits over time.
+This project analyzes extended Spotify streaming history using Hive, HDFS, and Big Data SQL techniques.
+The goal is to process large Spotify JSON data exports, clean them into CSV format, load them into HDFS, and run Hive queries to extract meaningful insights about listening behavior over multiple years.
 
-## Overview
+This repository contains:
 
-This pipeline processes Spotify Extended Streaming History data and performs time-based behavioral analysis.
+Cleaned CSV datasets
 
-The pipeline performs the following steps:
-1. Convert raw Spotify Extended Streaming History JSON files into a clean CSV using Python.
-2. Upload the CSV into Hadoop HDFS.
-3. Load the CSV into a Hive table.
-4. Run Hive SQL queries to analyze listening habits, including:
-   - Top artists
-   - Top tracks
-   - Total listening minutes/hours
-   - Listening by year
-   - Listening by hour of day
+Hive SQL scripts
 
-The pipeline is reusable and can be applied to any Spotify JSON dataset.
+Instructions for loading data into Hive
 
-## Technologies Used
+Queries for analytics
 
-- Python (data conversion)
-- Hadoop HDFS (distributed storage)
-- Hive / Beeline (SQL analytics)
-- Linux terminal / SSH
+Folder structure used in the final project
 
-## Files in This Repository
 
-### convert_spotify.py
-Python script that:
-- Reads all *.json Spotify history files in a folder
-- Extracts key fields: timestamp, platform, ms_played, track, artist
-- Outputs a clean CSV file named spotify_history.csv
+spotify-bigdata-project/
+│
+├── data/
+│   ├── spotify_time.csv          # ms_played per timestamp
+│   └── spotify_tracks.csv        # track & artist per timestamp
+│
+├── sql/
+│   ├── top_tracks_per_year.sql
+│   ├── top_artists_per_year.sql
+│   ├── listening_by_hour.sql
+│   └── listening_by_platform.sql
+│
+├── results/
+│   └── (exports for Tableau / screenshots)
+│
+└── README.md
 
-### queries.sql
-Hive SQL script that:
-- Creates the spotify_csv Hive table
-- Loads the CSV from HDFS
-- Runs all listening analytics (yearly listening, hourly listening, top artists, top tracks)
 
-### README.md
-Project documentation and usage instructions.
+📦 Dataset Source
 
-## How to Run
+The raw data comes from Spotify’s Extended Streaming History, downloaded from:
+https://www.spotify.com/us/account/privacy/
 
-### 1. Convert JSON → CSV
-Place all Spotify JSON files in one folder and run:
-python3 convert_spotify.py
+Spotify provides JSON files such as: 
 
-### 2. Upload CSV to Hadoop VM
-scp spotify_history.csv <username>@<vm-ip>:/home/<username>/
-
-### 3. Move CSV into HDFS
-hdfs dfs -mkdir -p /user/<username>/spotify
-hdfs dfs -put spotify_history.csv /user/<username>/spotify/
-
-### 4. Run Hive Queries
-Open Beeline and run:
-USE <your_db>;
-SOURCE queries.sql;
-
-## Notes
-
-- Raw Spotify JSON files are not included in this repository for privacy.
-- This project was created for a Big Data assignment but is fully reusable for future portfolio use.
+Streaming_History_Audio_2023-2024.json
+Streaming_History_Audio_2022.json
+Streaming_History_Audio_2015-2018.json
+ And so on
 
 
 
-**Any teammate can download this repo and analyze their own listening history:**
+1. spotify_time.csv is used for time based analysis
 
-Download your Spotify Extended Streaming History (JSON files)
-
-Place them in a folder
-
-Run the converter:
-
-python3 convert_spotify.py
+| ts                   | platform | ms_played |
+| -------------------- | -------- | --------- |
+| 2025-07-06T06:17:14Z | ios      | 108981    |
 
 
-Upload the generated CSV to HDFS
+2. spotify_tracks.csv is used for tracks/artist analysis
 
-Run the Hive queries from queries.sql
 
-Your dashboard will reflect your own listening history.
+
+🗄️ Loading Data into HDFS
+
+
+hdfs dfs -mkdir /user/<your_username>/spotify_new
+
+hdfs dfs -put data/spotify_time.csv /user/<your_username>/spotify_new/
+hdfs dfs -put data/spotify_tracks.csv /user/<your_username>/spotify_new/
+ 
+
+Afterwards verify: hdfs dfs -ls /user/<your_username>/spotify_new
+
+
+Creating Hive Tables:
+
+Table 1: spotify_time
+
+CREATE TABLE spotify_time (
+    ts STRING,
+    platform STRING,
+    ms_played BIGINT
+)
+ROW FORMAT DELIMITED
+FIELDS TERMINATED BY ','
+STORED AS TEXTFILE;
+
+LOAD DATA INPATH '/user/<your_username>/spotify_new/spotify_time.csv'
+INTO TABLE spotify_time;
+
+
+
+Table 2: spotify_tracks
+
+CREATE TABLE spotify_tracks (
+    ts STRING,
+    track STRING,
+    artist STRING
+)
+ROW FORMAT DELIMITED
+FIELDS TERMINATED BY ','
+STORED AS TEXTFILE;
+
+LOAD DATA INPATH '/user/<your_username>/spotify_new/spotify_tracks.csv'
+INTO TABLE spotify_tracks;
+
+
+
+Analysis Queries (SQL)
+
+
+All SQL queries are stored inside the SQL folder, below is a summary of each analysis.
+
+1. Top 10 Tracks Per Year
+
+SELECT year,
+       track,
+       artist,
+       plays
+FROM (
+    SELECT
+        SUBSTR(ts,1,4) AS year,
+        track,
+        artist,
+        COUNT(*) AS plays,
+        ROW_NUMBER() OVER (
+            PARTITION BY SUBSTR(ts,1,4)
+            ORDER BY COUNT(*) DESC
+        ) AS rn
+    FROM spotify_tracks
+    GROUP BY SUBSTR(ts,1,4), track, artist
+) t
+WHERE rn <= 10
+ORDER BY year, plays DESC;
+
+
+2. Top 10 Artist Per Year
+
+SELECT year,
+       artist,
+       plays
+FROM (
+    SELECT
+        SUBSTR(ts,1,4) AS year,
+        artist,
+        COUNT(*) AS plays,
+        ROW_NUMBER() OVER (
+            PARTITION BY SUBSTR(ts,1,4)
+            ORDER BY COUNT(*) DESC
+        ) AS rn
+    FROM spotify_tracks
+    GROUP BY SUBSTR(ts,1,4), artist
+) t
+WHERE rn <= 10
+ORDER BY year, plays DESC;
+
+
+3. Listening Time by Hour of Day
+
+
+SELECT 
+    CAST(SUBSTR(ts,12,2) AS INT) AS hour,
+    ROUND(SUM(ms_played)/3600000, 2) AS hours
+FROM spotify_time
+WHERE ts IS NOT NULL 
+  AND SUBSTR(ts,12,2) IS NOT NULL
+GROUP BY CAST(SUBSTR(ts,12,2) AS INT)
+ORDER BY hour;
+
+
+4. Listening Time by Platform (Device)
+
+SELECT 
+    LOWER(platform) AS platform_clean,
+    ROUND(SUM(ms_played)/3600000, 2) AS hours
+FROM spotify_time
+GROUP BY LOWER(platform)
+ORDER BY hours DESC;
+
+
+
+
+
+
+
+
