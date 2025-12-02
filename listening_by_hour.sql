@@ -1,0 +1,9 @@
+SELECT 
+    CAST(SUBSTR(ts,12,2) AS INT) AS hour,
+    ROUND(SUM(ms_played)/3600000, 2) AS hours
+FROM spotify_time
+WHERE ts IS NOT NULL 
+  AND SUBSTR(ts,12,2) IS NOT NULL
+GROUP BY CAST(SUBSTR(ts,12,2) AS INT)
+ORDER BY hour;
+
