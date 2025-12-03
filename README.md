@@ -113,26 +113,22 @@ All SQL queries are stored inside the SQL folder, below is a summary of each ana
 
 1. Top 10 Tracks Per Year
 
-SELECT year,
-       track,
-       artist,
-       plays
+SELECT year, track, artist, plays
 FROM (
     SELECT
-        SUBSTR(ts,1,4) AS year,
+        year,
         track,
         artist,
         COUNT(*) AS plays,
         ROW_NUMBER() OVER (
-            PARTITION BY SUBSTR(ts,1,4)
+            PARTITION BY year
             ORDER BY COUNT(*) DESC
         ) AS rn
-    FROM spotify_tracks
-    GROUP BY SUBSTR(ts,1,4), track, artist
+    FROM spotify_all_time_data
+    GROUP BY year, track, artist
 ) t
 WHERE rn <= 10
 ORDER BY year, plays DESC;
-
 
 2. Top 10 Artist Per Year
 
@@ -155,20 +151,42 @@ WHERE rn <= 10
 ORDER BY year, plays DESC;
 
 
-3. Listening Time by Hour of Day
+
+3. Top 10 Artists of All time
+
+**SELECT artist,
+       SUM(ms_played) AS total_ms,
+       SUM(ms_played) / 1000.0 / 60.0 / 60.0 AS total_hours
+FROM spotify_all_time_data
+GROUP BY artist
+ORDER BY total_ms DESC
+LIMIT 10;
+**
 
 
-SELECT 
-    CAST(SUBSTR(ts,12,2) AS INT) AS hour,
-    ROUND(SUM(ms_played)/3600000, 2) AS hours
-FROM spotify_time
-WHERE ts IS NOT NULL 
-  AND SUBSTR(ts,12,2) IS NOT NULL
-GROUP BY CAST(SUBSTR(ts,12,2) AS INT)
+
+4. Listening Time by Hour of Day
+
+WITH parsed AS (
+  SELECT
+    -- Parse string ts ('2014-02-08T06:52:02Z') as UTC, then convert to your timezone 
+    from_utc_timestamp(
+      from_unixtime(unix_timestamp(ts, "yyyy-MM-dd'T'HH:mm:ss'Z'")),          <-- # If you have those particular fields in your timestamp.
+      'America/Los_Angeles'          -- change or drop this if you want pure UTC
+    ) AS ts_local,
+    ms_played
+  FROM spotify_time
+  WHERE ts IS NOT NULL
+)
+SELECT
+  hour(ts_local) AS hour,
+  ROUND(SUM(ms_played) / 3600000.0, 2) AS hours
+FROM parsed
+GROUP BY hour(ts_local)
 ORDER BY hour;
 
 
-4. Listening Time by Platform (Device)
+5. Listening Time by Platform (Device)
 
 SELECT 
     LOWER(platform) AS platform_clean,
@@ -178,6 +196,48 @@ GROUP BY LOWER(platform)
 ORDER BY hours DESC;
 
 
+6. Weekday x Hour Map (Hive)
+
+WITH parsed AS (
+  SELECT
+    from_utc_timestamp(
+      from_unixtime(unix_timestamp(ts, "yyyy-MM-dd'T'HH:mm:ss'Z'")),
+      'America/Los_Angeles'
+    ) AS ts_local,
+    ms_played
+  FROM spotify_time
+  WHERE ts IS NOT NULL
+)
+SELECT
+  -- numeric weekday to control sort order (1=Monday ... 7=Sunday)
+  CASE date_format(ts_local, 'EEEE')
+      WHEN 'Monday'    THEN 1
+      WHEN 'Tuesday'   THEN 2
+      WHEN 'Wednesday' THEN 3
+      WHEN 'Thursday'  THEN 4
+      WHEN 'Friday'    THEN 5
+      WHEN 'Saturday'  THEN 6
+      WHEN 'Sunday'    THEN 7
+  END AS weekday_num,
+  date_format(ts_local, 'EEEE') AS weekday_name,
+  hour(ts_local)                AS hour,
+  ROUND(SUM(ms_played) / 3600000.0, 2) AS hours
+FROM parsed
+GROUP BY
+  CASE date_format(ts_local, 'EEEE')
+      WHEN 'Monday'    THEN 1
+      WHEN 'Tuesday'   THEN 2
+      WHEN 'Wednesday' THEN 3
+      WHEN 'Thursday'  THEN 4
+      WHEN 'Friday'    THEN 5
+      WHEN 'Saturday'  THEN 6
+      WHEN 'Sunday'    THEN 7
+  END,
+  date_format(ts_local, 'EEEE'),
+  hour(ts_local)
+ORDER BY
+  weekday_num,
+  hour;
 
 
 
