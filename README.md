@@ -57,6 +57,7 @@ Streaming_History_Audio_2015-2018.json
 
 2. spotify_tracks.csv is used for tracks/artist analysis
 
+3. spotify_output_data_all_time combines all streaming stats together. 
 
 
 🗄️ Loading Data into HDFS
